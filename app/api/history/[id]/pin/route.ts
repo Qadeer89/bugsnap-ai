@@ -15,15 +15,10 @@ export async function POST(
 
   const email = session.user.email;
 
-  // ✅ Next 16 FIX: params is a Promise
+  // ✅ IMPORTANT
   const { id } = await params;
   const bugId = Number(id);
 
-  if (Number.isNaN(bugId)) {
-    return NextResponse.json({ error: "INVALID_ID" }, { status: 400 });
-  }
-
-  // Get current pin state
   const row = db
     .prepare(`SELECT is_pinned FROM bugs WHERE id = ? AND email = ?`)
     .get(bugId, email) as { is_pinned: number } | undefined;
@@ -35,10 +30,8 @@ export async function POST(
   const newValue = row.is_pinned ? 0 : 1;
 
   db.prepare(`
-    UPDATE bugs
-    SET is_pinned = ?
-    WHERE id = ? AND email = ?
+    UPDATE bugs SET is_pinned = ? WHERE id = ? AND email = ?
   `).run(newValue, bugId, email);
 
-  return NextResponse.json({ success: true, pinned: newValue === 1 });
+  return NextResponse.json({ success: true, is_pinned: newValue });
 }

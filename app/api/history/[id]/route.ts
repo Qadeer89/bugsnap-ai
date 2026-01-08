@@ -5,7 +5,7 @@ import db from "@/lib/db";
 
 export async function DELETE(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession(authOptions);
 
@@ -15,16 +15,11 @@ export async function DELETE(
 
   const email = session.user.email;
 
-  const bugId = Number(params.id); // ✅ correct
+  // ✅ IMPORTANT: await params
+  const { id } = await params;
+  const bugId = Number(id);
 
-  if (Number.isNaN(bugId)) {
-    return NextResponse.json({ error: "INVALID_ID" }, { status: 400 });
-  }
-
-  db.prepare(`
-    DELETE FROM bugs
-    WHERE id = ? AND email = ?
-  `).run(bugId, email);
+  db.prepare(`DELETE FROM bugs WHERE id = ? AND email = ?`).run(bugId, email);
 
   return NextResponse.json({ success: true });
 }
