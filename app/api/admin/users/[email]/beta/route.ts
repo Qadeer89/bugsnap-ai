@@ -3,6 +3,13 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import db from "@/lib/db";
 import { isAdmin } from "@/lib/admin";
+import {
+  sendBetaApprovedEmail,
+  sendBetaRevokedEmail,
+  sendProEnabledEmail,
+  sendProRevokedEmail
+} from "@/lib/email";
+
 
 export async function POST(
   req: Request,
@@ -25,12 +32,23 @@ export async function POST(
     return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
 
-  const newValue = user.is_beta ? 0 : 1;
+    const oldValue = user.is_beta;
+    const newValue = oldValue ? 0 : 1;
 
-  db.prepare(`UPDATE users SET is_beta = ? WHERE email = ?`).run(
-    newValue,
-    decodedEmail
-  );
+    db.prepare(`UPDATE users SET is_beta = ? WHERE email = ?`).run(
+      newValue,
+      decodedEmail
+    );
 
-  return NextResponse.json({ success: true });
+// 📧 Send email
+    if (oldValue === 0 && newValue === 1) {
+      await sendBetaApprovedEmail(decodedEmail);
+    }
+
+    if (oldValue === 1 && newValue === 0) {
+      await sendBetaRevokedEmail(decodedEmail);
+    }
+
+    return NextResponse.json({ success: true });
+
 }

@@ -30,6 +30,21 @@ export default function HomePage() {
   const bugSectionRef = useRef<HTMLDivElement | null>(null);
 
   /* ─────────────────────────────
+     RESET FORM (NEW FEATURE)
+  ───────────────────────────── */
+  function resetForm() {
+    setImage(null);
+    setIntent("");
+    setEnvironment("QA");
+    setBrowser("");
+    setBug("");
+    setLoading(false);
+    setLoadingStep(0);
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  /* ─────────────────────────────
      Fetch usage from SERVER (DB)
   ───────────────────────────── */
   async function refreshUsage() {
@@ -216,9 +231,16 @@ export default function HomePage() {
       {/* ───────── LOADING STEPS ───────── */}
       {loading && <LoadingSteps step={loadingStep} />}
 
-      {/* ───────── BUG OUTPUT ───────── */}
+      {/* ───────── BUG OUTPUT + RESET BUTTON ───────── */}
       {bug && (
         <div ref={bugSectionRef}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3>Generated Bug</h3>
+            <button className="secondary" onClick={resetForm}>
+              🆕 Create New Bug
+            </button>
+          </div>
+
           <BugEditor bug={bug} />
         </div>
       )}

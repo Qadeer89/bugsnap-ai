@@ -1,8 +1,7 @@
 import db from "./db";
 import { sendNewUserNotification } from "./email";
 
-
-export function ensureUser(email: string) {
+export async function ensureUser(email: string) {
   const user = db
     .prepare("SELECT email FROM users WHERE email = ?")
     .get(email) as { email: string } | undefined;
@@ -14,6 +13,6 @@ export function ensureUser(email: string) {
     `).run(email, new Date().toISOString());
 
     // 📧 Notify admin
-    sendNewUserNotification(email);
+    await sendNewUserNotification(email);
   }
 }

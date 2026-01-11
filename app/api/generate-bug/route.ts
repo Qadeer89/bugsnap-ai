@@ -73,7 +73,7 @@ export async function POST(req: Request) {
     /* ───────────────────────────
        3️⃣ ENSURE USER EXISTS
     ─────────────────────────── */
-    ensureUser(email);
+    await ensureUser(email);
 
     /* ───────────────────────────
         BETA ACCESS CHECK

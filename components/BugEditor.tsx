@@ -22,22 +22,22 @@ export default function BugEditor({ bug }: Props) {
   const area = extractSection(bug, "Suspected Area");
 
   const description = `
-h3. Preconditions
+PRECONDITIONS:
 ${preconditions}
 
-h3. Steps to Reproduce
+STEPS TO REPRODUCE:
 ${steps}
 
-h3. Expected Result
+EXPECTED RESULT:
 ${expected}
 
-h3. Actual Result
+ACTUAL RESULT:
 ${actual}
 
-h3. Severity
+SEVERITY:
 ${severity}
 
-h3. Suspected Area
+SUSPECTED AREA:
 ${area}
 `.trim();
 
@@ -72,10 +72,9 @@ ${area}
       {/* DESCRIPTION */}
       <label>Description (Jira Description)</label>
 
-      {/* 🔔 JIRA ATTACHMENT HINT */}
       <p className="note">
-        📎 <strong>Note:</strong> Paste this description into Jira. Please attach
-        the screenshot manually in Jira’s attachment section.
+        📎 <strong>Note:</strong> Paste this description into Jira.  
+        You can optionally convert headings using Jira toolbar.
       </p>
 
       <textarea rows={15} value={description} readOnly />

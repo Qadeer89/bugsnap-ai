@@ -3,6 +3,13 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { isAdmin } from "@/lib/admin";
 import db from "@/lib/db";
+import {
+  sendBetaApprovedEmail,
+  sendBetaRevokedEmail,
+  sendProEnabledEmail,
+  sendProRevokedEmail
+} from "@/lib/email";
+
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
@@ -21,9 +28,20 @@ export async function POST(req: Request) {
     .prepare("SELECT is_beta FROM users WHERE email = ?")
     .get(email) as { is_beta: number };
 
-  const newValue = row?.is_beta === 1 ? 0 : 1;
+    const oldValue = row?.is_beta === 1 ? 1 : 0;
+    const newValue = oldValue === 1 ? 0 : 1;
 
-  db.prepare("UPDATE users SET is_beta = ? WHERE email = ?").run(newValue, email);
+    db.prepare("UPDATE users SET is_beta = ? WHERE email = ?").run(newValue, email);
 
-  return NextResponse.json({ success: true, is_beta: newValue === 1 });
+    // 📧 Send email
+    if (oldValue === 0 && newValue === 1) {
+    await sendBetaApprovedEmail(email);
+ }
+
+    if (oldValue === 1 && newValue === 0) {
+    await sendBetaRevokedEmail(email);
+ }
+
+ return NextResponse.json({ success: true, is_beta: newValue === 1 });
+
 }
