@@ -13,10 +13,7 @@ import { validateBase64Image } from "@/lib/imageGuard";
 import { hashImage } from "@/lib/hash";
 import { findCachedBug } from "@/lib/history";
 import { isUserBeta } from "@/lib/beta";
-
-
-
-
+import db from "@/lib/db";
 
 /* ───────────────────────────
    Helpers to parse AI output
@@ -41,24 +38,19 @@ export async function POST(req: Request) {
     const email = session.user.email;
 
     /* ───────────────────────────
-   1.5️⃣ RATE LIMIT CHECK
-─────────────────────────── */
+       1.5️⃣ RATE LIMIT CHECK
+    ─────────────────────────── */
     const rate = checkRateLimit(email);
 
     if (!rate.allowed) {
       return NextResponse.json(
-       {
-        error: "RATE_LIMITED",
-        message: "Too many requests. Please wait a minute.",
-      },
-      { status: 429 }
-     );
+        {
+          error: "RATE_LIMITED",
+          message: "Too many requests. Please wait a minute.",
+        },
+        { status: 429 }
+      );
     }
-
-    
-
-
-
 
     /* ───────────────────────────
        2️⃣ GLOBAL KILL SWITCH
@@ -76,21 +68,19 @@ export async function POST(req: Request) {
     await ensureUser(email);
 
     /* ───────────────────────────
-        BETA ACCESS CHECK
+       4️⃣ BETA ACCESS CHECK
     ─────────────────────────── */
     if (!isUserBeta(email)) {
       return NextResponse.json(
-       { error: "NOT_IN_BETA" },
-       { status: 403 }
+        { error: "NOT_IN_BETA" },
+        { status: 403 }
       );
     }
 
-
     /* ───────────────────────────
-       4️⃣ HARD DAILY LIMIT (EVEN FOR PRO)
+       5️⃣ HARD DAILY LIMIT
     ─────────────────────────── */
     const isPro = isUserPro(email);
-
     const { allowed, remaining, limit } = canGenerateForUser(email, isPro);
 
     if (!allowed) {
@@ -106,23 +96,9 @@ export async function POST(req: Request) {
     }
 
     /* ───────────────────────────
-       5️⃣ REQUEST BODY
+       6️⃣ REQUEST BODY
     ─────────────────────────── */
     const body = await req.json();
-
-    // 🔁 DEDUPLICATION HASH
-    const imageHash = hashImage(body.image);
-
-    // 🔍 Check cache
-    const cached = findCachedBug(email, imageHash);
-
-    if (cached) {
-      return NextResponse.json({
-        result: cached.description,
-        cached: true,
-      });
-    }
-
 
     if (!body.image) {
       return NextResponse.json(
@@ -132,8 +108,8 @@ export async function POST(req: Request) {
     }
 
     /* ───────────────────────────
-   4.5️⃣ IMAGE VALIDATION
-─────────────────────────── */
+       7️⃣ IMAGE VALIDATION
+    ─────────────────────────── */
     const validation = validateBase64Image(body.image);
 
     if (!validation.ok) {
@@ -143,9 +119,25 @@ export async function POST(req: Request) {
       );
     }
 
+    /* ───────────────────────────
+       8️⃣ DEDUPLICATION HASH
+    ─────────────────────────── */
+    const imageHash = hashImage(body.image);
 
     /* ───────────────────────────
-       6️⃣ DUMMY AI MODE (DEV SAFE)
+       9️⃣ CACHE CHECK
+    ─────────────────────────── */
+    const cached = findCachedBug(email, imageHash);
+
+    if (cached) {
+      return NextResponse.json({
+        result: cached.description,
+        cached: true,
+      });
+    }
+
+    /* ───────────────────────────
+       🔟 DUMMY AI MODE
     ─────────────────────────── */
     if (process.env.USE_DUMMY_AI === "true") {
       const dummy = `
@@ -178,11 +170,15 @@ Backend
 
       saveBugToHistory(email, title, dummy, imageHash);
 
+      db.prepare(
+        "UPDATE users SET total_generated = total_generated + 1 WHERE email = ?"
+      ).run(email);
+
       return NextResponse.json({ result: dummy });
     }
 
     /* ───────────────────────────
-       7️⃣ REAL AI MODE
+       1️⃣1️⃣ REAL AI MODE
     ─────────────────────────── */
     const bug = await generateBugReport({
       imageBase64: body.image,
@@ -202,6 +198,11 @@ Backend
 
     // ✅ Save to history
     saveBugToHistory(email, title, bug, imageHash);
+    db.prepare(`
+      UPDATE users 
+      SET total_generated = total_generated + 1 
+      WHERE email = ?
+    `).run(email);
 
     return NextResponse.json({ result: bug });
 

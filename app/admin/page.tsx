@@ -7,7 +7,8 @@ type UserRow = {
   created_at: string;
   is_beta: number;
   is_pro: number;
-  bug_count: number;
+  today_bugs: number;
+  total_bugs: number;
 };
 
 export default function AdminPage() {
@@ -67,7 +68,8 @@ export default function AdminPage() {
             <th align="left">Email</th>
             <th>Beta</th>
             <th>Pro</th>
-            <th>Bugs</th>
+            <th>Today</th>
+            <th>Total</th>
             <th>Created</th>
             <th>Actions</th>
           </tr>
@@ -77,19 +79,29 @@ export default function AdminPage() {
           {users.map((u) => (
             <tr key={u.email} style={{ borderTop: "1px solid #eee" }}>
               <td>{u.email}</td>
+
               <td style={{ textAlign: "center" }}>
                 {u.is_beta ? "✅" : "❌"}
               </td>
+
               <td style={{ textAlign: "center" }}>
                 {u.is_pro ? "💎" : "❌"}
               </td>
-              <td style={{ textAlign: "center" }}>{u.bug_count}</td>
+
+              <td style={{ textAlign: "center", fontWeight: 600 }}>
+                {u.today_bugs}
+              </td>
+
+              <td style={{ textAlign: "center", fontWeight: 600 }}>
+                {u.total_bugs}
+              </td>
+
               <td style={{ textAlign: "center" }}>
                 {new Date(u.created_at).toLocaleDateString()}
               </td>
+
               <td>
                 <div style={{ display: "flex", gap: 8 }}>
-                  {/* Beta Toggle */}
                   <button
                     className="secondary"
                     onClick={() => toggleBeta(u.email)}
@@ -97,7 +109,6 @@ export default function AdminPage() {
                     {u.is_beta ? "Revoke Beta" : "Approve Beta"}
                   </button>
 
-                  {/* Pro Toggle */}
                   <button
                     className="secondary"
                     onClick={() => togglePro(u.email)}
@@ -110,6 +121,10 @@ export default function AdminPage() {
           ))}
         </tbody>
       </table>
+
+      <p style={{ marginTop: 12, opacity: 0.7 }}>
+        🧪 Today = Daily usage limit • 🧮 Total = Lifetime usage
+      </p>
     </div>
   );
 }

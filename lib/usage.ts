@@ -1,7 +1,7 @@
 import db, { todayKey } from "./db";
 
-const FREE_DAILY_CAP = 30;
-const PRO_DAILY_CAP = 50;
+const FREE_DAILY_CAP = 3;
+const PRO_DAILY_CAP = 20;
 
 export function canGenerateForUser(email: string, isPro: boolean) {
   const today = todayKey();

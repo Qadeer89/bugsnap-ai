@@ -16,7 +16,8 @@ db.prepare(`
     email TEXT PRIMARY KEY,
     created_at TEXT NOT NULL,
     is_pro INTEGER DEFAULT 0,
-    is_beta INTEGER DEFAULT 0
+    is_beta INTEGER DEFAULT 0,
+    total_generated INTEGER DEFAULT 0
   )
 `).run();
 
@@ -51,14 +52,20 @@ db.prepare(`
   )
 `).run();
 
+/* MIGRATIONS (safe) */
+try {
+  db.prepare(`ALTER TABLE users ADD COLUMN total_generated INTEGER DEFAULT 0`).run();
+} catch {}
 
-// migration safety
 try {
   db.prepare(`ALTER TABLE bugs ADD COLUMN is_pinned INTEGER DEFAULT 0`).run();
-} catch (e) {}
+} catch {}
 
-/* ✅ THIS IS THE CRITICAL LINE */
+/* EXPORT */
 export default db;
+
+console.log("USING DB FILE:", dbPath);
+
 
 export function todayKey() {
   return new Date().toISOString().slice(0, 10);
