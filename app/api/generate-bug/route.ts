@@ -1,3 +1,7 @@
+
+export const runtime = "nodejs";
+
+
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 
@@ -15,9 +19,9 @@ import { findCachedBug } from "@/lib/history";
 import { isUserBeta } from "@/lib/beta";
 import db from "@/lib/db";
 
-/* ───────────────────────────
-   Helpers to parse AI output
-─────────────────────────── */
+type Mode = "image" | "gif" | "scenario";
+
+/* ─────────────────────────── */
 function extractSection(text: string, section: string) {
   const regex = new RegExp(`${section}:([\\s\\S]*?)(?=\\n[A-Z][a-zA-Z ]+:|$)`);
   const match = text.match(regex);
@@ -26,119 +30,94 @@ function extractSection(text: string, section: string) {
 
 export async function POST(req: Request) {
   try {
-    /* ───────────────────────────
-       1️⃣ AUTH CHECK
-    ─────────────────────────── */
+    /* ───────── AUTH ───────── */
     const session = await getServerSession(authOptions);
-
     if (!session?.user?.email) {
       return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
     }
-
     const email = session.user.email;
 
-    /* ───────────────────────────
-       1.5️⃣ RATE LIMIT CHECK
-    ─────────────────────────── */
+    /* ───────── RATE LIMIT ───────── */
     const rate = checkRateLimit(email);
-
     if (!rate.allowed) {
       return NextResponse.json(
-        {
-          error: "RATE_LIMITED",
-          message: "Too many requests. Please wait a minute.",
-        },
+        { error: "RATE_LIMITED", message: "Too many requests" },
         { status: 429 }
       );
     }
 
-    /* ───────────────────────────
-       2️⃣ GLOBAL KILL SWITCH
-    ─────────────────────────── */
+    /* ───────── GLOBAL SWITCH ───────── */
     if (process.env.AI_ENABLED !== "true") {
       return NextResponse.json(
-        { error: "AI_DISABLED", message: "AI is temporarily disabled" },
+        { error: "AI_DISABLED" },
         { status: 503 }
       );
     }
 
-    /* ───────────────────────────
-       3️⃣ ENSURE USER EXISTS
-    ─────────────────────────── */
+    /* ───────── USER ───────── */
     await ensureUser(email);
 
-    /* ───────────────────────────
-       4️⃣ BETA ACCESS CHECK
-    ─────────────────────────── */
     if (!isUserBeta(email)) {
-      return NextResponse.json(
-        { error: "NOT_IN_BETA" },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: "NOT_IN_BETA" }, { status: 403 });
     }
 
-    /* ───────────────────────────
-       5️⃣ HARD DAILY LIMIT
-    ─────────────────────────── */
+    /* ───────── BODY ───────── */
+    const body = await req.json();
+
+    const mode: Mode = body.mode || "image";
+    const image = body.image;
+    const scenario = body.scenario;
+
+    let imageHash: string | null = null;
+
+    /* ───────── VALIDATION ───────── */
+    if (mode === "scenario") {
+      if (!scenario || scenario.trim().length < 10) {
+        return NextResponse.json(
+          { error: "Scenario description is required" },
+          { status: 400 }
+        );
+      }
+    } else {
+      if (!image) {
+        return NextResponse.json(
+          { error: "Image/GIF is required" },
+          { status: 400 }
+        );
+      }
+
+      const validation = validateBase64Image(image);
+      if (!validation.ok) {
+        return NextResponse.json(
+          { error: validation.error },
+          { status: 400 }
+        );
+      }
+
+      imageHash = hashImage(image);
+
+      /* ✅ CACHE CHECK FIRST */
+      const cached = findCachedBug(email, imageHash);
+      if (cached) {
+        return NextResponse.json({
+          result: cached.description,
+          cached: true,
+        });
+      }
+    }
+
+    /* ───────── DAILY LIMIT (AFTER CACHE) ───────── */
     const isPro = isUserPro(email);
-    const { allowed, remaining, limit } = canGenerateForUser(email, isPro);
+    const { allowed, limit } = canGenerateForUser(email, isPro);
 
     if (!allowed) {
       return NextResponse.json(
-        {
-          error: "LIMIT_REACHED",
-          message: "Daily limit reached",
-          remaining: 0,
-          limit,
-        },
+        { error: "LIMIT_REACHED", limit },
         { status: 403 }
       );
     }
 
-    /* ───────────────────────────
-       6️⃣ REQUEST BODY
-    ─────────────────────────── */
-    const body = await req.json();
-
-    if (!body.image) {
-      return NextResponse.json(
-        { error: "Image is required" },
-        { status: 400 }
-      );
-    }
-
-    /* ───────────────────────────
-       7️⃣ IMAGE VALIDATION
-    ─────────────────────────── */
-    const validation = validateBase64Image(body.image);
-
-    if (!validation.ok) {
-      return NextResponse.json(
-        { error: validation.error },
-        { status: 400 }
-      );
-    }
-
-    /* ───────────────────────────
-       8️⃣ DEDUPLICATION HASH
-    ─────────────────────────── */
-    const imageHash = hashImage(body.image);
-
-    /* ───────────────────────────
-       9️⃣ CACHE CHECK
-    ─────────────────────────── */
-    const cached = findCachedBug(email, imageHash);
-
-    if (cached) {
-      return NextResponse.json({
-        result: cached.description,
-        cached: true,
-      });
-    }
-
-    /* ───────────────────────────
-       🔟 DUMMY AI MODE
-    ─────────────────────────── */
+    /* ───────── DUMMY MODE ───────── */
     if (process.env.USE_DUMMY_AI === "true") {
       const dummy = `
 Title:
@@ -146,18 +125,17 @@ Unable to save user profile after updating email address
 
 Preconditions:
 - User is logged in
-- Environment is QA
 
 Steps to Reproduce:
-1. Navigate to Profile page
-2. Update email address
-3. Click Save
+1. Go to profile
+2. Update email
+3. Click save
 
 Expected Result:
-Profile should be saved successfully.
+Profile saved
 
 Actual Result:
-Changes are not saved and no success message is shown.
+Not saved
 
 Severity:
 Major
@@ -168,7 +146,7 @@ Backend
 
       const title = extractSection(dummy, "Title") || "Untitled bug";
 
-      saveBugToHistory(email, title, dummy, imageHash);
+      saveBugToHistory(email, title, dummy, imageHash || "SCENARIO");
 
       db.prepare(
         "UPDATE users SET total_generated = total_generated + 1 WHERE email = ?"
@@ -177,41 +155,32 @@ Backend
       return NextResponse.json({ result: dummy });
     }
 
-    /* ───────────────────────────
-       1️⃣1️⃣ REAL AI MODE
-    ─────────────────────────── */
+    /* ───────── REAL AI ───────── */
     const bug = await generateBugReport({
-      imageBase64: body.image,
+      mode,
+      imageBase64: mode === "scenario" ? undefined : image,
+      scenario,
       intent: body.intent,
       environment: body.environment,
       browser: body.browser,
     });
 
     if (!bug) {
-      return NextResponse.json(
-        { error: "AI failed to generate bug" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "AI_FAILED" }, { status: 500 });
     }
 
     const title = extractTitleFromBug(bug) || "Untitled bug";
 
-    // ✅ Save to history
-    saveBugToHistory(email, title, bug, imageHash);
-    db.prepare(`
-      UPDATE users 
-      SET total_generated = total_generated + 1 
-      WHERE email = ?
-    `).run(email);
+    saveBugToHistory(email, title, bug, imageHash || "SCENARIO");
+
+    db.prepare(
+      "UPDATE users SET total_generated = total_generated + 1 WHERE email = ?"
+    ).run(email);
 
     return NextResponse.json({ result: bug });
 
-  } catch (error) {
-    console.error("BugSnap API Error:", error);
-
-    return NextResponse.json(
-      { error: "Failed to generate bug" },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("BugSnap API Error:", err);
+    return NextResponse.json({ error: "FAILED" }, { status: 500 });
   }
 }

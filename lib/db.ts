@@ -52,6 +52,27 @@ db.prepare(`
   )
 `).run();
 
+/* INTEGRATIONS (Generic for future tools like Jira, Linear, etc) */
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS integrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+
+    provider TEXT NOT NULL,      -- "jira"
+    type TEXT NOT NULL,          -- "cloud" | "server"
+
+    base_url TEXT,               -- for server Jira
+    cloud_id TEXT,               -- for Jira Cloud
+
+    access_token TEXT NOT NULL,
+    refresh_token TEXT,
+
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )
+`).run();
+
+
 /* MIGRATIONS (safe) */
 try {
   db.prepare(`ALTER TABLE users ADD COLUMN total_generated INTEGER DEFAULT 0`).run();

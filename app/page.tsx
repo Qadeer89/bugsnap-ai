@@ -11,239 +11,345 @@ import LoadingSteps from "@/components/LoadingSteps";
 import AuthButton from "@/components/AuthButton";
 import { useSession } from "next-auth/react";
 import BugHistory from "@/components/BugHistory";
+import JiraPushModal from "@/components/JiraPushModal";
+
+type Mode = "image" | "gif" | "scenario";
+
+const DRAFT_KEY = "bugsnap_draft_v1";
+const MIN_SCENARIO_LENGTH = 10;
 
 export default function HomePage() {
   const { data: session, status } = useSession();
 
+  const [mode, setMode] = useState<Mode>("image");
   const [image, setImage] = useState<string | null>(null);
+  const [scenario, setScenario] = useState("");
   const [intent, setIntent] = useState("");
   const [environment, setEnvironment] = useState("QA");
   const [browser, setBrowser] = useState("");
   const [bug, setBug] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
+
   const [usage, setUsage] = useState<{ count: number; limit: number } | null>(null);
-  const [showProMessage, setShowProMessage] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [isBeta, setIsBeta] = useState<boolean | null>(null);
+  const [isPro, setIsPro] = useState<boolean>(false);
+  const [showProMessage, setShowProMessage] = useState(false);
+
+  const [showJiraModal, setShowJiraModal] = useState(false);
 
   const bugSectionRef = useRef<HTMLDivElement | null>(null);
 
-  /* ─────────────────────────────
-     RESET FORM (NEW FEATURE)
-  ───────────────────────────── */
   function resetForm() {
     setImage(null);
+    setScenario("");
     setIntent("");
     setEnvironment("QA");
     setBrowser("");
     setBug("");
     setLoading(false);
     setLoadingStep(0);
+    setMode("image");
+
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+    } catch {}
 
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  /* ─────────────────────────────
-     Fetch usage from SERVER (DB)
-  ───────────────────────────── */
   async function refreshUsage() {
     const res = await fetch("/api/usage", { cache: "no-store" });
-    if (!res.ok) return;
-    const data = await res.json();
-    setUsage(data);
+    if (res.ok) setUsage(await res.json());
   }
 
   async function loadHistory() {
     const res = await fetch("/api/history", { cache: "no-store" });
-    if (res.ok) {
-      const data = await res.json();
-      setHistory(data);
-    }
+    if (res.ok) setHistory(await res.json());
   }
 
-  async function checkBeta() {
+  async function checkUser() {
     const res = await fetch("/api/me", { cache: "no-store" });
     if (res.ok) {
       const data = await res.json();
       setIsBeta(data.is_beta === true);
+      setIsPro(data.is_pro === true);
     }
   }
 
-  /* ─────────────────────────────
-     On login → fetch usage, history, beta status
-  ───────────────────────────── */
   useEffect(() => {
     if (session) {
       refreshUsage();
       loadHistory();
-      checkBeta();
+      checkUser();
     }
   }, [session]);
 
-  /* ─────────────────────────────
-     Auto-scroll to bug output
-  ───────────────────────────── */
+  useEffect(() => {
+    const payload = {
+      bug,
+      mode,
+      image,
+      scenario,
+      intent,
+      environment,
+      browser,
+    };
+
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
+    } catch {}
+  }, [bug, mode, image, scenario, intent, environment, browser]);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        const d = JSON.parse(saved);
+        setBug(d.bug || "");
+        setMode(d.mode || "image");
+        setImage(d.image || null);
+        setScenario(d.scenario || "");
+        setIntent(d.intent || "");
+        setEnvironment(d.environment || "QA");
+        setBrowser(d.browser || "");
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => {
     if (bug && bugSectionRef.current) {
-      bugSectionRef.current.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
+      bugSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [bug]);
 
-  /* ─────────────────────────────
-     Blur background during loading
-  ───────────────────────────── */
   useEffect(() => {
-    if (loading) {
-      document.body.classList.add("loading");
-    } else {
-      document.body.classList.remove("loading");
-    }
-    return () => {
-      document.body.classList.remove("loading");
-    };
+    if (loading) document.body.classList.add("loading");
+    else document.body.classList.remove("loading");
+    return () => document.body.classList.remove("loading");
   }, [loading]);
 
-  /* ─────────────────────────────
-     LOADING STATES
-  ───────────────────────────── */
   if (status === "loading" || (session && isBeta === null)) {
     return (
       <div className="container">
-        <p>Checking access...</p>
+        <p>Loading your workspace...</p>
       </div>
     );
   }
 
   return (
     <div className="container">
-      {/* ───────── HEADER ───────── */}
-      <header className="header">
-        <h1>🐞 BugSnap AI</h1>
-        <p>From screenshot to Jira-ready bug in under a minute.</p>
+      {/* HEADER */}
+      <header
+        className="header"
+        style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
+      >
+        <div>
+          <h1>🐞 BugSnap AI</h1>
+          <p>From screenshot, GIF or scenario to Jira-ready bug.</p>
+        </div>
+
         <AuthButton />
       </header>
 
-      {/* ───────── NOT LOGGED IN ───────── */}
+      {/* 🔒 LOGIN MESSAGE */}
       {!session && (
-        <div className="note" style={{ marginTop: "30px" }}>
-          🔒 Please login with Google to generate bugs
+        <div
+          style={{
+            marginTop: 24,
+            padding: "16px 20px",
+            borderRadius: 12,
+            background: "#fff7ed",
+            border: "1px solid #fed7aa",
+            color: "#9a3412",
+            fontSize: 18,
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          🔐 Please login with Google to generate bugs
         </div>
       )}
 
-      {/* ───────── LOGGED IN BUT NOT BETA ───────── */}
+      {/* ❌ NOT APPROVED BETA */}
       {session && isBeta === false && (
         <div className="pro-card" style={{ marginTop: 40 }}>
           <h3>🔒 Private Beta</h3>
           <p>Your account is not approved for beta access yet.</p>
-          <p>Please contact admin to get access.</p>
         </div>
       )}
 
-      {/* ───────── LOGGED IN + BETA USER ───────── */}
-      {session && isBeta === true && (
-        <>
-          <div style={{ display: "flex", gap: "24px", alignItems: "flex-start" }}>
-            {/* ───────── LEFT SIDE ───────── */}
-            <div style={{ flex: 1 }}>
-              <div className="cards">
-                <div className="card">
-                  <div className="card-title">📸 Screenshot</div>
-                  <ScreenshotUploader image={image} setImage={setImage} />
-                </div>
+      {/* ✅ MAIN APP (BETA OR PRO) */}
+      {session && isBeta !== false && (
+        <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
+          {/* LEFT */}
+          <div style={{ flex: 1 }}>
+            <div className="cards">
+              <div className="card">
+                <div className="card-title">🧭 Bug Input Mode</div>
+                <div style={{ display: "flex", gap: 16 }}>
+                  <label>
+                    <input
+                      type="radio"
+                      checked={mode === "image"}
+                      onChange={() => setMode("image")}
+                    />{" "}
+                    📸 Screenshot
+                  </label>
 
-                <div className="card">
-                  <div className="card-title">🧠 Context (Optional)</div>
-                  <ContextForm
-                    intent={intent}
-                    setIntent={setIntent}
-                    environment={environment}
-                    setEnvironment={setEnvironment}
-                    browser={browser}
-                    setBrowser={setBrowser}
-                  />
+                  {isPro && (
+                    <label>
+                      <input
+                        type="radio"
+                        checked={mode === "gif"}
+                        onChange={() => setMode("gif")}
+                      />{" "}
+                      🎞️ GIF
+                    </label>
+                  )}
+
+                  <label>
+                    <input
+                      type="radio"
+                      checked={mode === "scenario"}
+                      onChange={() => setMode("scenario")}
+                    />{" "}
+                    📝 Scenario
+                  </label>
                 </div>
               </div>
 
-              {/* ───────── USAGE ───────── */}
-              {usage && usage.limit !== Infinity && (
-                <p className="note">
-                  🧪 Bugs today: {usage.count} / {usage.limit}
-                </p>
+              {(mode === "image" || mode === "gif") && (
+                <div className="card">
+                  <div className="card-title">
+                    {mode === "gif" ? "🎞️ Upload GIF" : "📸 Upload Screenshot"}
+                  </div>
+                  <ScreenshotUploader image={image} setImage={setImage} mode={mode} />
+                </div>
               )}
 
-              {/* ───────── GENERATE BUTTON ───────── */}
-              <GenerateButton
-                image={image}
-                intent={intent}
-                environment={environment}
-                browser={browser}
-                setBug={setBug}
-                loading={loading}
-                setLoading={setLoading}
-                setLoadingStep={setLoadingStep}
-                onGenerated={() => {
-                  refreshUsage();
-                  loadHistory();
-                }}
-                onLimitReached={() => setShowProMessage(true)}
-              />
+              {mode === "scenario" && (
+                <div className="card">
+                  <div className="card-title">📝 Scenario Description</div>
+
+                  <textarea
+                    rows={8}
+                    value={scenario}
+                    onChange={(e) => setScenario(e.target.value)}
+                  />
+
+                  {/* 🔢 CHARACTER COUNTER */}
+                  <div style={{ marginTop: 8, fontSize: 13 }}>
+                    {scenario.trim().length < MIN_SCENARIO_LENGTH ? (
+                      <span style={{ color: "#dc2626" }}>
+                        ⚠️ Minimum {MIN_SCENARIO_LENGTH} characters required (
+                        {scenario.trim().length}/{MIN_SCENARIO_LENGTH})
+                      </span>
+                    ) : (
+                      <span style={{ color: "#16a34a" }}>
+                        ✅ Looks good ({scenario.trim().length} characters)
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="card">
+                <div className="card-title">🧠 Context (Optional)</div>
+                <ContextForm
+                  intent={intent}
+                  setIntent={setIntent}
+                  environment={environment}
+                  setEnvironment={setEnvironment}
+                  browser={browser}
+                  setBrowser={setBrowser}
+                />
+              </div>
             </div>
 
-            {/* ───────── RIGHT SIDE (HISTORY) ───────── */}
-            <div style={{ width: "340px", position: "sticky", top: 20 }}>
-              <BugHistory
-                bugs={history}
-                onSelect={(bugItem) => {
-                  if (bugItem) {
-                    setBug(bugItem.description);
-                  } else {
-                    setBug("");
-                  }
-                }}
-              />
-            </div>
+            {usage && usage.limit !== Infinity && (
+              <p className="note">
+                🧪 Bugs today: {usage.count} / {usage.limit}
+              </p>
+            )}
+
+            <GenerateButton
+              mode={mode}
+              scenario={scenario}
+              image={image}
+              intent={intent}
+              environment={environment}
+              browser={browser}
+              setBug={setBug}
+              loading={loading}
+              setLoading={setLoading}
+              setLoadingStep={setLoadingStep}
+              onGenerated={() => {
+                refreshUsage();
+                loadHistory();
+              }}
+              onLimitReached={() => setShowProMessage(true)}
+            />
+
+            {showProMessage && (
+              <div className="pro-card" style={{ marginTop: 16 }}>
+                <h3>🚀 Upgrade to Pro</h3>
+                <p>
+                  You have reached your daily limit. Upgrade to Pro for unlimited
+                  bugs and GIF support.
+                </p>
+              </div>
+            )}
           </div>
-        </>
-      )}
 
-      {/* ───────── PRO MESSAGE ───────── */}
-      {showProMessage && (
-        <div className="pro-card">
-          <h3>🚀 Daily free limit reached</h3>
-          <p>
-            You’ve generated all <strong>3 free bugs</strong> for today.
-          </p>
-          <ul>
-            <li>Unlimited bug reports</li>
-            <li>Faster AI responses</li>
-            <li>Jira issue creation (coming soon)</li>
-          </ul>
-          <button className="primary" disabled>
-            Upgrade to Pro (Coming Soon)
-          </button>
+          {/* RIGHT */}
+          <div style={{ width: 340, position: "sticky", top: 20 }}>
+            <BugHistory bugs={history} onSelect={(b) => setBug(b ? b.description : "")} />
+          </div>
         </div>
       )}
 
-      {/* ───────── LOADING STEPS ───────── */}
       {loading && <LoadingSteps step={loadingStep} />}
 
-      {/* ───────── BUG OUTPUT + RESET BUTTON ───────── */}
+      {/* BUG OUTPUT */}
       {bug && (
-        <div ref={bugSectionRef}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h3>Generated Bug</h3>
+        <div ref={bugSectionRef} className="card">
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              marginBottom: 12,
+              justifyContent: "flex-end",
+            }}
+          >
             <button className="secondary" onClick={resetForm}>
-              🆕 Create New Bug
+              🆕 New Bug
             </button>
+
+            {isPro && (
+              <button className="primary" onClick={() => setShowJiraModal(true)}>
+                🚀 Push to Jira
+              </button>
+            )}
           </div>
 
-          <BugEditor bug={bug} />
+          <BugEditor bug={bug} image={image} />
         </div>
       )}
+
+      <JiraPushModal
+        open={showJiraModal}
+        onClose={() => setShowJiraModal(false)}
+        title={bug.match(/Title:\s*(.*)/i)?.[1] || "Bug from BugSnap AI"}
+        description={bug}
+        severity={bug.match(/Severity:\s*(.*)/i)?.[1] || ""}
+        image={image}
+        onAuthExpired={() => {}}
+      />
     </div>
   );
 }
