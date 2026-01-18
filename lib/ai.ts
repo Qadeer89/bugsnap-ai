@@ -2,7 +2,7 @@ import OpenAI from "openai";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
-  timeout: 25_000,
+  timeout: 60_000, // GPT-5 can be slow sometimes
 });
 
 type Mode = "image" | "gif" | "scenario";
@@ -10,7 +10,7 @@ type Mode = "image" | "gif" | "scenario";
 /**
  * Generates a Jira-ready bug report from:
  * - image
- * - gif (multi-step visual)
+ * - gif
  * - OR scenario text only
  */
 export async function generateBugReport({
@@ -32,8 +32,7 @@ export async function generateBugReport({
     throw new Error("OPENAI_API_KEY is missing");
   }
 
-  try {
-    const systemPrompt = `
+  const systemPrompt = `
 You are BugSnap AI, a Principal QA Lead with 15+ years of experience in enterprise software testing.
 
 Your job:
@@ -57,22 +56,21 @@ Expected Result:
 Actual Result:
 Severity:
 Suspected Area:
-
-QUALITY BAR:
-- Steps must be clear and reproducible
-- Expected vs Actual must be specific and testable
-- Severity must be justified by impact
-- Suspected Area must be a concrete module (UI, Backend, API, Permissions, etc.)
-- Assume this will be filed in a real enterprise Jira system
 `.trim();
 
-    let userMessage: any;
+  try {
+    let input: any;
 
     if (mode === "scenario") {
-      // 🧠 SCENARIO MODE (NO IMAGE)
-      userMessage = {
-        role: "user",
-        content: `
+      // 🧠 SCENARIO MODE
+      input = [
+        {
+          role: "system",
+          content: systemPrompt,
+        },
+        {
+          role: "user",
+          content: `
 Context:
 User intent: ${intent || "Not specified"}
 Environment: ${environment || "QA"}
@@ -86,21 +84,27 @@ Instructions:
 - Do NOT assume any UI details that are not stated
 - Convert the scenario into clear, reproducible steps
 - Generate the bug report in the EXACT format defined.
-        `.trim(),
-      };
+          `.trim(),
+        },
+      ];
     } else {
       // 🖼️ IMAGE / GIF MODE
       const visualHint =
         mode === "gif"
-          ? "The attached file is a GIF representing a sequence of actions over time. Analyze it as a step-by-step flow, not as a single static screenshot."
+          ? "The attached file is a GIF representing a sequence of actions over time. Analyze it as a step-by-step flow."
           : "The attached file is a screenshot of the issue.";
 
-      userMessage = {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: `
+      input = [
+        {
+          role: "system",
+          content: systemPrompt,
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `
 Context:
 User intent: ${intent || "Not specified"}
 Environment: ${environment || "QA"}
@@ -113,41 +117,46 @@ Instructions:
 - Carefully analyze what is happening in the visual
 - If it is a GIF, infer the user journey across multiple steps
 - Generate a bug report in the EXACT format defined above.
-            `.trim(),
-          },
-          {
-            type: "image_url",
-            image_url: {
-              url: imageBase64!,
+              `.trim(),
             },
-          },
-        ],
-      };
+            {
+              type: "input_image",
+              image_url: imageBase64!,
+            },
+          ],
+        },
+      ];
     }
 
-    const response = await openai.chat.completions.create({
+    // ✅ GPT-5 RESPONSES API
+    const response = await openai.responses.create({
       model: "gpt-5.1",
-      max_tokens: 900,
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        userMessage,
-      ],
+      input,
+      max_output_tokens: 900,
     });
 
-    const content = response.choices[0]?.message?.content;
+    // ✅ Extract text safely
+    let text = "";
 
-    if (!content || content.length < 80) {
-      throw new Error("AI returned empty or invalid response");
+    for (const item of response.output) {
+      if (item.type === "message") {
+        for (const c of item.content) {
+          if (c.type === "output_text") {
+            text += c.text;
+          }
+        }
+      }
     }
 
-    return content.trim();
-  } catch (err: any) {
-    console.error("🔥 OpenAI Error:", err?.message || err);
+    if (!text || text.length < 80) {
+      throw new Error("Empty or invalid AI response");
+    }
 
-    // 🛟 Graceful fallback
+    return text.trim();
+  } catch (err: any) {
+    console.error("🔥 OpenAI GPT-5 Error:", err?.message || err);
+
+    // 🛟 Fallback
     return `
 Title:
 Unable to auto-generate bug
