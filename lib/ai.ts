@@ -59,18 +59,19 @@ Suspected Area:
 `.trim();
 
   try {
-    let input: any;
+    let input: any[];
 
     if (mode === "scenario") {
-      // 🧠 SCENARIO MODE
+      // 🧠 SCENARIO MODE (TEXT ONLY)
       input = [
         {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
           role: "user",
-          content: `
+          content: [
+            {
+              type: "input_text",
+              text: `
+${systemPrompt}
+
 Context:
 User intent: ${intent || "Not specified"}
 Environment: ${environment || "QA"}
@@ -83,8 +84,10 @@ Instructions:
 - Base the bug report ONLY on the scenario above
 - Do NOT assume any UI details that are not stated
 - Convert the scenario into clear, reproducible steps
-- Generate the bug report in the EXACT format defined.
-          `.trim(),
+- Generate the bug report in the EXACT format defined above.
+              `.trim(),
+            },
+          ],
         },
       ];
     } else {
@@ -96,15 +99,13 @@ Instructions:
 
       input = [
         {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
           role: "user",
           content: [
             {
-              type: "text",
+              type: "input_text",
               text: `
+${systemPrompt}
+
 Context:
 User intent: ${intent || "Not specified"}
 Environment: ${environment || "QA"}
@@ -128,25 +129,15 @@ Instructions:
       ];
     }
 
-    // ✅ GPT-5 RESPONSES API
+    // ✅ GPT-5 RESPONSES API (CORRECT)
     const response = await openai.responses.create({
       model: "gpt-5.1",
       input,
       max_output_tokens: 900,
     });
 
-    // ✅ Extract text safely
-    let text = "";
-
-    for (const item of response.output) {
-      if (item.type === "message") {
-        for (const c of item.content) {
-          if (c.type === "output_text") {
-            text += c.text;
-          }
-        }
-      }
-    }
+    // ✅ Official SDK helper
+    const text = response.output_text || "";
 
     if (!text || text.length < 80) {
       throw new Error("Empty or invalid AI response");
@@ -156,7 +147,7 @@ Instructions:
   } catch (err: any) {
     console.error("🔥 OpenAI GPT-5 Error:", err?.message || err);
 
-    // 🛟 Fallback
+    // 🛟 Graceful fallback
     return `
 Title:
 Unable to auto-generate bug
