@@ -85,7 +85,6 @@ try {
 /* EXPORT */
 export default db;
 
-console.log("USING DB FILE:", dbPath);
 
 
 export function todayKey() {
