@@ -85,7 +85,8 @@ export default function JiraPushModal({
       if (!res.ok) {
         if (
           data?.error === "JIRA_RECONNECT_REQUIRED" ||
-          data?.error === "JIRA_NOT_CONNECTED"
+          data?.error === "JIRA_NOT_CONNECTED" ||
+          res.status === 401
         ) {
           setNeedsConnect(true);
           return;
@@ -121,7 +122,7 @@ export default function JiraPushModal({
       );
       if (p) setPriority(p.id);
 
-      setSprint(""); // reset sprint
+      setSprint("");
     } catch (e) {
       setError("Failed to load Jira metadata");
     } finally {
@@ -149,7 +150,6 @@ export default function JiraPushModal({
         setIssueTypes(issueTypes);
         setSprints(sprints);
 
-        // reset selections
         const bugType = issueTypes.find(
           (i: any) => i.name.toLowerCase() === "bug"
         );
@@ -271,6 +271,37 @@ export default function JiraPushModal({
         <h3>🚀 Push to Jira</h3>
 
         {error && <div style={{ color: "#ef4444" }}>❌ {error}</div>}
+
+        {/* 🔐 CONNECT JIRA SCREEN */}
+        {needsConnect && (
+          <div
+            style={{
+              marginTop: 20,
+              padding: 20,
+              borderRadius: 12,
+              background: "#fff7ed",
+              border: "1px solid #fed7aa",
+            }}
+          >
+            <h4>🔗 Connect Jira</h4>
+            <p style={{ marginTop: 8 }}>
+              You need to connect your Jira account before pushing bugs.
+            </p>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+              <a
+                href="/api/jira/connect"
+                className="primary"
+                style={{ textDecoration: "none" }}
+              >
+                Connect Jira
+              </a>
+              <button className="secondary" onClick={onClose}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* FORM */}
         {stage === "idle" && !needsConnect && (
