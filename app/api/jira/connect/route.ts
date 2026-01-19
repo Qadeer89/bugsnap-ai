@@ -29,12 +29,14 @@ export async function GET() {
   const params = new URLSearchParams({
     audience: "api.atlassian.com",
     client_id: process.env.JIRA_CLIENT_ID!,
-    // 🔥 IMPORTANT: offline_access ADDED MANUALLY
-    scope:"read:jira-user read:jira-work write:jira-work read:jira-board offline_access",
+    scope:
+      "read:jira-user read:jira-work write:jira-work read:jira-board offline_access",
     redirect_uri: process.env.JIRA_REDIRECT_URI!,
     state,
     response_type: "code",
-    prompt: "consent",
+
+    // ✅ 🔥 FORCE ACCOUNT PICKER EVERY TIME
+    prompt: "select_account consent",
   });
 
   const url = `https://auth.atlassian.com/authorize?${params.toString()}`;
