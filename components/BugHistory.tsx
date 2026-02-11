@@ -10,25 +10,84 @@ type Bug = {
 
 type Props = {
   bugs: Bug[];
+  search: string;
+  setSearch: (s: string) => void;
   onSelect: (bug: Bug | null) => void;
+  setHistory: React.Dispatch<React.SetStateAction<Bug[]>>;
+  reloadFirstPage: () => Promise<void>;   // ✅ IMPORTANT
 };
 
-export default function BugHistory({ bugs, onSelect }: Props) {
-  async function deleteBug(id: number) {
-    await fetch(`/api/history/${id}`, { method: "DELETE" });
-    window.location.reload(); // simple refresh for now
-  }
+function sortBugs(bugs: Bug[]) {
+  return [...bugs].sort((a, b) => {
+    if (a.is_pinned !== b.is_pinned) {
+      return b.is_pinned - a.is_pinned; // pinned first
+    }
+    return (
+      new Date(b.created_at).getTime() -
+      new Date(a.created_at).getTime()
+    );
+  });
+}
+
+export default function BugHistory({
+  bugs,
+  search,
+  setSearch,
+  onSelect,
+  setHistory,
+  reloadFirstPage,   // ✅ ADDED (you had missed this in destructuring)
+}: Props) {
 
   async function togglePin(id: number) {
-    await fetch(`/api/history/${id}/pin`, { method: "POST" });
-    window.location.reload(); // simple refresh for now
+    const res = await fetch(`/api/history/${id}/pin`, { method: "POST" });
+    if (!res.ok) return;
+
+    const data = await res.json(); // { success, is_pinned }
+
+    // ✅ 1) Instant local update (fast UI)
+    setHistory((prev) =>
+      sortBugs(
+        prev.map((b) =>
+          b.id === id ? { ...b, is_pinned: data.is_pinned } : b
+        )
+      )
+    );
+
+    // ✅ 2) Silent background refresh from server (data consistency)
+    await reloadFirstPage();
   }
 
+  async function deleteBug(id: number) {
+    const res = await fetch(`/api/history/${id}`, { method: "DELETE" });
+    if (!res.ok) return;
+
+    setHistory((prev) => prev.filter((b) => b.id !== id));
+  }
+
+  const filteredBugs = bugs.filter((b) =>
+    b.title.toLowerCase().includes(search.toLowerCase())
+  );
+
   return (
-    <div className="card" style={{ maxHeight: 360, overflowY: "auto" }}>
+    <div className="card">
       <div className="card-title">📚 Bug History</div>
 
-      {bugs.map((bug) => (
+      {/* ✅ SEARCH (unchanged) */}
+      <input
+        type="text"
+        placeholder="Search by title..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        style={{
+          width: "100%",
+          padding: "6px 8px",
+          marginBottom: 10,
+          borderRadius: 8,
+          border: "1px solid #e5e7eb",
+        }}
+      />
+
+      {filteredBugs.map((bug) => (
         <div
           key={bug.id}
           style={{

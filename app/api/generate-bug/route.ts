@@ -1,36 +1,58 @@
-
 export const runtime = "nodejs";
-
 
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { z } from "zod";
 
 import { authOptions } from "@/lib/auth";
 import { ensureUser } from "@/lib/user";
 import { isUserPro } from "@/lib/pro";
 import { canGenerateForUser } from "@/lib/usage";
 import { generateBugReport } from "@/lib/ai";
-import { saveBugToHistory } from "@/lib/history";
+import { saveBugToHistory, findCachedBug } from "@/lib/history";
 import { extractTitleFromBug } from "@/lib/ai";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { validateBase64Image } from "@/lib/imageGuard";
 import { hashImage } from "@/lib/hash";
-import { findCachedBug } from "@/lib/history";
 import { isUserBeta } from "@/lib/beta";
 import db from "@/lib/db";
 
 type Mode = "image" | "gif" | "scenario";
 
 /* ─────────────────────────── */
+/* HELPER */
 function extractSection(text: string, section: string) {
-  const regex = new RegExp(`${section}:([\\s\\S]*?)(?=\\n[A-Z][a-zA-Z ]+:|$)`);
+  const regex = new RegExp(
+    `${section}:([\\s\\S]*?)(?=\\n[A-Z][a-zA-Z ]+:|$)`
+  );
   const match = text.match(regex);
   return match ? match[1].trim() : "";
 }
 
+/* ─────────────────────────── */
+/* INPUT VALIDATION (NEW) */
+const requestSchema = z.object({
+  mode: z.enum(["image", "gif", "scenario"]).optional(),
+  image: z.string().optional(),
+  scenario: z.string().optional(),
+  intent: z.string().optional(),
+  environment: z.string().optional(),
+  browser: z.string().optional(),
+});
+
+/* ─────────────────────────── */
+/* AI OUTPUT VALIDATION (NEW) */
+const bugSchema = z.object({
+  title: z.string(),
+  steps: z.array(z.string()).optional(),
+  expected: z.string().optional(),
+  actual: z.string().optional(),
+  raw: z.string().optional(),
+});
+
 export async function POST(req: Request) {
   try {
-    /* ───────── AUTH ───────── */
+    /* ───────── AUTH (HARD BLOCK) ───────── */
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) {
       return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
@@ -54,15 +76,23 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ───────── USER ───────── */
+    /* ───────── USER ENSURE ───────── */
     await ensureUser(email);
 
     if (!isUserBeta(email)) {
       return NextResponse.json({ error: "NOT_IN_BETA" }, { status: 403 });
     }
 
-    /* ───────── BODY ───────── */
-    const body = await req.json();
+    /* ───────── BODY PARSE + VALIDATE ───────── */
+    let body;
+    try {
+      body = requestSchema.parse(await req.json());
+    } catch {
+      return NextResponse.json(
+        { error: "INVALID_REQUEST" },
+        { status: 400 }
+      );
+    }
 
     const mode: Mode = body.mode || "image";
     const image = body.image;
@@ -74,7 +104,7 @@ export async function POST(req: Request) {
     if (mode === "scenario") {
       if (!scenario || scenario.trim().length < 10) {
         return NextResponse.json(
-          { error: "Scenario description is required" },
+          { error: "Scenario description is required (min 10 chars)" },
           { status: 400 }
         );
       }
@@ -155,18 +185,40 @@ Backend
       return NextResponse.json({ result: dummy });
     }
 
-    /* ───────── REAL AI ───────── */
-    const bug = await generateBugReport({
-      mode,
-      imageBase64: mode === "scenario" ? undefined : image,
-      scenario,
-      intent: body.intent,
-      environment: body.environment,
-      browser: body.browser,
-    });
+    /* ───────── REAL AI (WITH TIMEOUT) ───────── */
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    let bug: string | null = null;
+
+    try {
+      bug = await generateBugReport(
+        {
+          mode,
+          imageBase64: mode === "scenario" ? undefined : image,
+          scenario,
+          intent: body.intent,
+          environment: body.environment,
+          browser: body.browser,
+        },
+        controller.signal
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!bug) {
       return NextResponse.json({ error: "AI_FAILED" }, { status: 500 });
+    }
+
+    /* ───────── VALIDATE AI OUTPUT (NEW) ───────── */
+    try {
+      bugSchema.parse({ raw: bug });
+    } catch {
+      return NextResponse.json(
+        { error: "AI_OUTPUT_INVALID" },
+        { status: 500 }
+      );
     }
 
     const title = extractTitleFromBug(bug) || "Untitled bug";
@@ -178,7 +230,6 @@ Backend
     ).run(email);
 
     return NextResponse.json({ result: bug });
-
   } catch (err) {
     console.error("BugSnap API Error:", err);
     return NextResponse.json({ error: "FAILED" }, { status: 500 });

@@ -2,15 +2,34 @@ import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
 
+/**
+ * ==========================
+ *  DB INITIALIZATION
+ * ==========================
+ */
+
+// Ensure data directory exists
 const dataDir = path.join(process.cwd(), "data");
 if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir);
+  fs.mkdirSync(dataDir, { recursive: true });
 }
 
+// SQLite DB path
 const dbPath = path.join(dataDir, "bugsnap.db");
-const db = new Database(dbPath);
 
-/* USERS */
+// Create single shared DB instance (singleton pattern)
+const db = new Database(dbPath, {
+  verbose: process.env.NODE_ENV === "development" ? console.log : undefined,
+  fileMustExist: false,
+});
+
+/**
+ * ==========================
+ *  TABLE CREATION (MIGRATIONS - SAFE)
+ * ==========================
+ */
+
+// USERS TABLE
 db.prepare(`
   CREATE TABLE IF NOT EXISTS users (
     email TEXT PRIMARY KEY,
@@ -21,16 +40,17 @@ db.prepare(`
   )
 `).run();
 
-/* USAGE */
+// USAGE TABLE
 db.prepare(`
   CREATE TABLE IF NOT EXISTS usage (
-    email TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
     date TEXT NOT NULL,
-    count INTEGER NOT NULL
+    count INTEGER NOT NULL,
+    PRIMARY KEY (email, date)
   )
 `).run();
 
-/* BUGS */
+// BUGS TABLE
 db.prepare(`
   CREATE TABLE IF NOT EXISTS bugs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,7 +63,7 @@ db.prepare(`
   )
 `).run();
 
-/* RATE LIMIT */
+// RATE LIMIT TABLE (temporary, until Redis migration)
 db.prepare(`
   CREATE TABLE IF NOT EXISTS rate_limit (
     email TEXT PRIMARY KEY,
@@ -52,7 +72,7 @@ db.prepare(`
   )
 `).run();
 
-/* INTEGRATIONS (Generic for future tools like Jira, Linear, etc) */
+// INTEGRATIONS TABLE
 db.prepare(`
   CREATE TABLE IF NOT EXISTS integrations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,21 +92,40 @@ db.prepare(`
   )
 `).run();
 
+/**
+ * ==========================
+ *  SAFE MIGRATIONS (IF COLUMNS MISSING)
+ * ==========================
+ */
 
-/* MIGRATIONS (safe) */
-try {
-  db.prepare(`ALTER TABLE users ADD COLUMN total_generated INTEGER DEFAULT 0`).run();
-} catch {}
+function safeAddColumn(table: string, column: string, definition: string) {
+  try {
+    db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
+  } catch {
+    // Column already exists - ignore
+  }
+}
 
-try {
-  db.prepare(`ALTER TABLE bugs ADD COLUMN is_pinned INTEGER DEFAULT 0`).run();
-} catch {}
+// Ensure missing columns exist (backward compatibility)
+safeAddColumn("users", "total_generated", "INTEGER DEFAULT 0");
+safeAddColumn("bugs", "is_pinned", "INTEGER DEFAULT 0");
 
-/* EXPORT */
-export default db;
+// 🔥🔥🔥 NEW — AUTOMATIC ONE-TIME MIGRATION FOR PROD 🔥🔥🔥
+safeAddColumn("users", "subscription_status", "TEXT DEFAULT 'none'");
 
+/**
+ * ==========================
+ *  HELPERS
+ * ==========================
+ */
 
-
-export function todayKey() {
+export function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
 }
+
+/**
+ * ==========================
+ *  EXPORT SINGLETON DB
+ * ==========================
+ */
+export default db;

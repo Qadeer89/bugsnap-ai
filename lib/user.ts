@@ -9,7 +9,7 @@ export async function ensureUser(email: string) {
   if (!user) {
     db.prepare(`
       INSERT INTO users (email, created_at, is_pro, is_beta)
-      VALUES (?, ?, 0, 0)
+      VALUES (?, ?, 0, 1)
     `).run(email, new Date().toISOString());
 
     // 📧 Notify admin

@@ -7,27 +7,34 @@ const openai = new OpenAI({
 
 type Mode = "image" | "gif" | "scenario";
 
-/**
- * Generates a Jira-ready bug report from:
- * - image
- * - gif
- * - OR scenario text only
- */
-export async function generateBugReport({
-  imageBase64,
-  scenario,
-  intent,
-  environment,
-  browser,
-  mode,
-}: {
+type BugInput = {
   imageBase64?: string;
   scenario?: string;
   intent?: string;
   environment?: string;
   browser?: string;
   mode: Mode;
-}): Promise<string> {
+};
+
+/**
+ * Generates a Jira-ready bug report from:
+ * - image
+ * - gif
+ * - OR scenario text only
+ *
+ * NOW SUPPORTS: AbortSignal for safe timeouts
+ */
+export async function generateBugReport(
+  {
+    imageBase64,
+    scenario,
+    intent,
+    environment,
+    browser,
+    mode,
+  }: BugInput,
+  signal?: AbortSignal // ✅ NEW: Optional AbortSignal support
+): Promise<string> {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is missing");
   }
@@ -129,12 +136,17 @@ Instructions:
       ];
     }
 
-    // ✅ GPT-5 RESPONSES API (CORRECT)
-    const response = await openai.responses.create({
-      model: "gpt-5.1",
-      input,
-      max_output_tokens: 900,
-    });
+    // ✅ GPT-5 RESPONSES API WITH ABORT SIGNAL SUPPORT
+    const response = await openai.responses.create(
+      {
+        model: "gpt-5.1",
+        input,
+        max_output_tokens: 900,
+      },
+      {
+        signal, // 🔥 IMPORTANT: allows timeout cancellation
+      }
+    );
 
     // ✅ Official SDK helper
     const text = response.output_text || "";
@@ -145,9 +157,14 @@ Instructions:
 
     return text.trim();
   } catch (err: any) {
-    console.error("🔥 OpenAI GPT-5 Error:", err?.message || err);
+    // If request was aborted, give clearer message
+    if (err?.name === "AbortError") {
+      console.error("⏱️ OpenAI request timed out (aborted)");
+    } else {
+      console.error("🔥 OpenAI GPT-5 Error:", err?.message || err);
+    }
 
-    // 🛟 Graceful fallback
+    // 🛟 Graceful fallback (keeps app working)
     return `
 Title:
 Unable to auto-generate bug

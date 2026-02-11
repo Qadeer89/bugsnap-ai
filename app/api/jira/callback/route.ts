@@ -86,7 +86,28 @@ export async function GET(req: Request) {
   );
 
   // ✅ 5️⃣ Redirect back CLEAN (NO QUERY PARAMS)
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  return new NextResponse(
+    `
+    <html>
+      <body>
+        <script>
+          if (window.opener) {
+            window.opener.postMessage(
+              { type: "JIRA_CONNECTED", success: true },
+              "${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}"
+            );
+          }
+          window.close();
+        </script>
+        <p>Jira connected successfully. You can close this window.</p>
+      </body>
+    </html>
+    `,
+    {
+      headers: {
+        "Content-Type": "text/html",
+      },
+    }
+  );
 
-  return NextResponse.redirect(baseUrl);
 }
