@@ -5,7 +5,7 @@ export function validateBase64Image(base64: string) {
   }
 
   // Extract mime
-  const match = base64.match(/^data:image\/(png|jpeg|jpg|webp);base64,/);
+  const match = base64.match(/^data:image\/(png|jpeg|jpg|webp|gif);base64,/);
   if (!match) {
     return { ok: false, error: "UNSUPPORTED_IMAGE_TYPE" };
   }
@@ -14,7 +14,7 @@ export function validateBase64Image(base64: string) {
   const sizeInBytes =
     (base64.length * 3) / 4 - (base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0);
 
-  const MAX_SIZE = 2 * 1024 * 1024; // 2MB
+  const MAX_SIZE = 10 * 1024 * 1024; // 2MB now updated to 10MB
 
   if (sizeInBytes > MAX_SIZE) {
     return { ok: false, error: "IMAGE_TOO_LARGE" };

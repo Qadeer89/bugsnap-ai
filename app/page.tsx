@@ -355,7 +355,7 @@ export default function HomePage() {
             <GenerateButton
               mode={mode}
               scenario={scenario}
-              image={image}
+              image={mode === "scenario" ? null : image}
               intent={intent}
               environment={environment}
               browser={browser}
