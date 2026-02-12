@@ -17,8 +17,8 @@ const requestSchema = z.object({
   projectId: z.string(),
   issueTypeId: z.string(),
   priorityId: z.string().optional(),
-  assigneeId: z.string().optional(),
-  sprintId: z.string().optional(),
+  assigneeId: z.string().nullable().optional(),
+  sprintId: z.string().nullable().optional(),
 });
 
 type JiraIntegration = {
